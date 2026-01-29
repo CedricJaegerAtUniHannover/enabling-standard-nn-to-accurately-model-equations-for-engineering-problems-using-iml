@@ -1,0 +1,11 @@
+# Python internals
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Virtual Env
+venv/
+.env
+
+# MacOS junk
+.DS_Store
