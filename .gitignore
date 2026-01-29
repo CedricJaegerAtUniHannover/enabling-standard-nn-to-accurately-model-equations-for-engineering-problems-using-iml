@@ -7,5 +7,8 @@ __pycache__/
 venv/
 .env
 
+# Planning
+project_specs/*
+
 # MacOS junk
 .DS_Store
