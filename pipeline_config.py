@@ -23,5 +23,11 @@ config = {
     # Iteration IML
     "ICE_NUM_SAMPLES": 50,      # Number of instances to sample for ICE plots (reduces N dimension)
     "ICE_GRID_RESOLUTION": 50,  # Number of grid points per axis (reduces M dimension)
-    "PAIRWISE_H_STAT_THRESHOLD": 0.05
+    "PAIRWISE_H_STAT_THRESHOLD": 0.05,
+    # Symbolic Regression (PySR)
+    "PYSR_ITERATIONS": 20,
+    "PYSR_BINARY_OPS": ["+", "-", "*", "/", "pow"],
+    "PYSR_UNARY_OPS": ["sin", "cos", "exp", "log", "sqrt", "abs"],
+    "PYSR_MAX_SIZE": 7, # Limit complexity for quick, rough estimations
+    "SYMBOLIC_AGREEMENT_THRESHOLD": 0.90 # Require 90% agreement among ICE curves
 }

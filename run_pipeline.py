@@ -16,6 +16,7 @@ from src.ice import get_ice_curves, get_ice_surfaces
 from src.h_statistic import get_friedman_h_statistic
 from src.utils import get_short_model_name
 from src.data_prepro import load_scalers, unstandardize_ice_data, preprocess_data
+from src.symbolic_regression import analyze_1d_ice, analyze_2d_ice
 from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
 from src.config import MASTER_RANDOM_SEEDS
 from pipeline_config import config
@@ -249,13 +250,28 @@ def run_single_experiment(raw_data_path, config, seeds=None):
 
 
         # --- Phase 4: Augmenting Data for New Model Training ---
-        # 1. unstandardize data
-
-        # considered operations: [multiplication, division, pow, exp, log, sin, cos, sqrt]
-        # 2. Idenfify single feature augmentations by PySR regression of sampled ICE data
-
-        # 3. Identify feature pair augmentation by PySR regression of sampled 2d-ICE interaction data
-
+        print("\n--- Starting Phase 4: Symbolic Regression for Feature Augmentation ---")
+        
+        # 1. Identify single feature augmentations
+        print("Analyzing 1D-ICE data for unary transformations...")
+        unary_results = analyze_1d_ice(report_path, model_name, config)
+        
+        # 2. Identify feature pair augmentations
+        print("Analyzing 2D-ICE data for binary interactions...")
+        binary_results = analyze_2d_ice(report_path, model_name, config)
+        
+        # Save discovered equations to a report file
+        equations_report_path = os.path.join(report_path, f"discovered_equations_{model_name}.txt")
+        with open(equations_report_path, "w") as f:
+            f.write("Unary Transformations (1D ICE):\n")
+            for feat, eq in unary_results.items():
+                f.write(f"{feat}: {eq}\n")
+            f.write("\nBinary Interactions (2D ICE):\n")
+            for pair, eq in binary_results.items():
+                f.write(f"{pair}: {eq}\n")
+        
+        print(f"Saved discovered equations to {equations_report_path}")
+        
     print(f"--- Finished all training runs for {dataset_name} ---")
 
 
