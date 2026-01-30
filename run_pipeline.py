@@ -54,6 +54,85 @@ from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, g
 from src.config import MASTER_RANDOM_SEEDS
 from pipeline_config import config
 
+def set_global_seeds(seed):
+    """
+    Sets seeds for various libraries to ensure reproducibility.
+    """
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+
+def perform_1d_ice_analysis(model_wrapper, X_ice, ice_grid_res, report_path, model_name, dataset_name, seed, relative_path):
+    """Calculates and saves 1D-ICE curves."""
+    print("Calculating 1D-ICE curves for all features...")
+    all_ice_curves = []
+    for feature in X_ice.columns:
+        # Use 2x resolution for 1D curves as they are cheaper than 2D surfaces
+        ice_df = get_ice_curves(model_wrapper, X_ice, feature, centered=False, num_grid_points=ice_grid_res*2)
+        all_ice_curves.append(ice_df)
+    
+    # Save standardized 1D-ICE results
+    if all_ice_curves:
+        full_ice_df = pd.concat(all_ice_curves, ignore_index=True)
+        ice_file_path = os.path.join(report_path, f"stand_1d-ICE_{model_name}.csv")
+        full_ice_df.to_csv(ice_file_path, index=False)
+        print(f"Saved standardized 1D-ICE curves to {ice_file_path}")
+
+        # --- Un-standardization Step ---
+        # The relative_path is from the raw data directory, which mirrors the scaler artifact structure
+        x_scaler, y_scaler = load_scalers(dataset_name, seed, relative_path)
+        unstandardized_ice_1d_df = unstandardize_ice_data(full_ice_df, x_scaler, y_scaler, relative_path)
+        unstd_ice_path = os.path.join(report_path, f"unstand_1d-ICE_{model_name}.csv")
+        unstandardized_ice_1d_df.to_csv(unstd_ice_path, index=False)
+        print(f"Saved un-standardized 1D-ICE curves to {unstd_ice_path}")
+
+def perform_interaction_analysis(model_wrapper, X_train, X_ice, ice_num_samples, ice_grid_res, report_path, model_name, dataset_name, seed, relative_path, h_stat_threshold):
+    """Calculates H-statistics and 2D-ICE surfaces for interacting features."""
+    # Friedman H-statistic for feature interaction ranking
+    print("Calculating Friedman's pairwise H-statistic for feature interactions...")
+    _, pairwise_h_stats = get_friedman_h_statistic(model_wrapper, X_train, sample_size=ice_num_samples, random_state=seed)
+    
+    # Save pairwise H-statistic results
+    pairwise_h_path = os.path.join(report_path, f"h-statistic_pairwise_{model_name}.csv")
+    pairwise_h_stats.to_csv(pairwise_h_path)
+    print(f"Saved pairwise H-statistic results to {pairwise_h_path}")
+
+    # 2d-ICE curves for interacting feature pairs based on H-statistic
+    print("Calculating 2D-ICE surfaces for significant interacting features...")
+    
+    stacked_h = pairwise_h_stats.stack()
+    stacked_h.index = stacked_h.index.map(lambda x: tuple(sorted(x)))
+    stacked_h = stacked_h.drop_duplicates()
+    stacked_h = stacked_h[stacked_h.index.get_level_values(0) != stacked_h.index.get_level_values(1)]
+    
+    significant_pairs_series = stacked_h[stacked_h > h_stat_threshold].sort_values(ascending=False)
+    top_pairs = significant_pairs_series.index.tolist()
+
+    all_ice_surfaces = []
+    if top_pairs:
+        print(f"Found {len(top_pairs)} pairs with H-statistic > {h_stat_threshold} to analyze: {top_pairs}")
+        for pair in top_pairs:
+            print(f"  - Calculating 2D-ICE for pair: {pair}")
+            ice2d_df = get_ice_surfaces(model_wrapper, X_ice, features=list(pair), centered=False, num_grid_points=ice_grid_res)
+            all_ice_surfaces.append(ice2d_df)
+
+    # Save standardized 2D-ICE results
+    if all_ice_surfaces:
+        full_ice2d_df = pd.concat(all_ice_surfaces, ignore_index=True)
+        ice2d_file_path = os.path.join(report_path, f"stand_2d-ICE_{model_name}.csv")
+        full_ice2d_df.to_csv(ice2d_file_path, index=False)
+        print(f"Saved standardized 2D-ICE surfaces to {ice2d_file_path}")
+
+        # --- Un-standardization Step ---
+        x_scaler, y_scaler = load_scalers(dataset_name, seed, relative_path)
+        unstandardized_ice_2d_df = unstandardize_ice_data(full_ice2d_df, x_scaler, y_scaler, relative_path)
+        unstd_ice2d_path = os.path.join(report_path, f"unstand_2d-ICE_{model_name}.csv")
+        unstandardized_ice_2d_df.to_csv(unstd_ice2d_path, index=False)
+        print(f"Saved un-standardized 2D-ICE surfaces to {unstd_ice2d_path}")
+    else:
+        print("No significant feature pairs found for 2D-ICE analysis.")
 
 def run_single_experiment(raw_data_path, config, seeds=None):
     """
@@ -71,11 +150,7 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         print(f"\n{'-'*10} Running with seed {seed} ({i+1}/{len(seeds)} seeds) {'-'*10}")
         
         # Set global seeds for reproducibility at the start of the iteration
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
-        np.random.seed(seed)
-        random.seed(seed)
+        set_global_seeds(seed)
 
         # --- Phase 1: Preprocessing ---
         print(f"\n--- Starting Phase 1: Preprocessing Data for {dataset_name} ---")
@@ -92,12 +167,8 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         print(f"\n--- Starting Phase 2: Training Baseline Model for {dataset_name} ---")
 
         # Re-set seed for reproducibility of model initialization and data shuffling
-        # This ensures that any random state changes in Phase 1 do not affect Phase 2
-        np.random.seed(seed)
-        random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        # This ensures that any potential (overlooked) random state changes in Phase 1 do not affect Phase 2
+        set_global_seeds(seed)
         
         # 1. Load and prepare data for Pytorch training
         train_loader, val_loader, input_size = create_dataloaders(
@@ -137,11 +208,7 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         print("\n--- Starting Phase 3: Interpreting the Model ---")
 
         # Re-set seed before interpretation to ensure consistent sampling
-        np.random.seed(seed)
-        random.seed(seed)
-        torch.manual_seed(seed)
-        if torch.cuda.is_available():
-            torch.cuda.manual_seed_all(seed)
+        set_global_seeds(seed)
 
         # Create a wrapper for the PyTorch model to make it compatible with iML libraries
         model_wrapper = PyTorchModelWrapper(trained_model, config['DEVICE'])
@@ -168,76 +235,18 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         ice_grid_res = config.get('ICE_GRID_RESOLUTION', 50)
 
         # --- 1D-ICE Calculations ---
-        print("Calculating 1D-ICE curves for all features...")
-        all_ice_curves = []
-        for feature in X_ice.columns:
-            # Use 2x resolution for 1D curves as they are cheaper than 2D surfaces
-            ice_df = get_ice_curves(model_wrapper, X_ice, feature, centered=False, num_grid_points=ice_grid_res*2)
-            all_ice_curves.append(ice_df)
-        
-        # Save standardized 1D-ICE results
-        if all_ice_curves:
-            full_ice_df = pd.concat(all_ice_curves, ignore_index=True)
-            ice_file_path = os.path.join(report_path, f"stand_1d-ICE_{model_name}.csv")
-            full_ice_df.to_csv(ice_file_path, index=False)
-            print(f"Saved standardized 1D-ICE curves to {ice_file_path}")
-
-            # --- Un-standardization Step ---
-            # The relative_path is from the raw data directory, which mirrors the scaler artifact structure
-            x_scaler, y_scaler = load_scalers(dataset_name, seed, relative_path)
-            unstandardized_ice_1d_df = unstandardize_ice_data(full_ice_df, x_scaler, y_scaler, relative_path)
-            unstd_ice_path = os.path.join(report_path, f"unstand_1d-ICE_{model_name}.csv")
-            unstandardized_ice_1d_df.to_csv(unstd_ice_path, index=False)
-            print(f"Saved un-standardized 1D-ICE curves to {unstd_ice_path}")
+        perform_1d_ice_analysis(
+            model_wrapper, X_ice, ice_grid_res, report_path, 
+            model_name, dataset_name, seed, relative_path
+        )
 
         # --- H-Statistic and 2D-ICE Calculations ---
         # NOTE: H-Statistic and ICE calculations share calculations. Here this is not utilized but could be optimized.
-        # Friedman H-statistic for feature interaction ranking
-        print("Calculating Friedman's pairwise H-statistic for feature interactions...")
-        _, pairwise_h_stats = get_friedman_h_statistic(model_wrapper, X_train, sample_size=ice_num_samples, random_state=seed)
-        
-        # Save pairwise H-statistic results
-        pairwise_h_path = os.path.join(report_path, f"h-statistic_pairwise_{model_name}.csv")
-        pairwise_h_stats.to_csv(pairwise_h_path)
-        print(f"Saved pairwise H-statistic results to {pairwise_h_path}")
-
-        # 2d-ICE curves for interacting feature pairs based on H-statistic
-        print("Calculating 2D-ICE surfaces for significant interacting features...")
-        
-        # Find interacting pairs with H-statistic above a certain threshold
-        H_STAT_THRESHOLD = 0.05
-        
-        stacked_h = pairwise_h_stats.stack()
-        stacked_h.index = stacked_h.index.map(lambda x: tuple(sorted(x)))
-        stacked_h = stacked_h.drop_duplicates()
-        stacked_h = stacked_h[stacked_h.index.get_level_values(0) != stacked_h.index.get_level_values(1)]
-        
-        significant_pairs_series = stacked_h[stacked_h > H_STAT_THRESHOLD].sort_values(ascending=False)
-        top_pairs = significant_pairs_series.index.tolist()
-
-        all_ice_surfaces = []
-        if top_pairs:
-            print(f"Found {len(top_pairs)} pairs with H-statistic > {H_STAT_THRESHOLD} to analyze: {top_pairs}")
-            for pair in top_pairs:
-                print(f"  - Calculating 2D-ICE for pair: {pair}")
-                ice2d_df = get_ice_surfaces(model_wrapper, X_ice, features=list(pair), centered=False, num_grid_points=ice_grid_res)
-                all_ice_surfaces.append(ice2d_df)
-
-        # Save standardized 2D-ICE results
-        if all_ice_surfaces:
-            full_ice2d_df = pd.concat(all_ice_surfaces, ignore_index=True)
-            ice2d_file_path = os.path.join(report_path, f"stand_2d-ICE_{model_name}.csv")
-            full_ice2d_df.to_csv(ice2d_file_path, index=False)
-            print(f"Saved standardized 2D-ICE surfaces to {ice2d_file_path}")
-
-            # --- Un-standardization Step ---
-            # Scalers are already loaded from the 1D-ICE step
-            unstandardized_ice_2d_df = unstandardize_ice_data(full_ice2d_df, x_scaler, y_scaler, relative_path)
-            unstd_ice2d_path = os.path.join(report_path, f"unstand_2d-ICE_{model_name}.csv")
-            unstandardized_ice_2d_df.to_csv(unstd_ice2d_path, index=False)
-            print(f"Saved un-standardized 2D-ICE surfaces to {unstd_ice2d_path}")
-        else:
-            print("No significant feature pairs found for 2D-ICE analysis.")
+        h_stat_threshold = config.get('PAIRWISE_H_STAT_THRESHOLD', 0.05)
+        perform_interaction_analysis(
+            model_wrapper, X_train, X_ice, ice_num_samples, ice_grid_res, 
+            report_path, model_name, dataset_name, seed, relative_path, h_stat_threshold
+        )
 
 
         # --- Phase 4: Augmenting Data for New Model Training ---
