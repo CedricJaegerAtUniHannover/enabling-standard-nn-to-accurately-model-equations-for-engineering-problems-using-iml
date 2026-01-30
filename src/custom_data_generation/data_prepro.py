@@ -20,76 +20,94 @@ SCALER_DIR = os.path.join(PROJECT_ROOT, 'artifacts', 'scalers')
 SPLIT_RATIO = 0.2 # 20% for validation
 SPLIT_SEED = DATA_PREPROCESSING_SEED
 
-def preprocess_synthetic_data():
+def preprocess_synthetic_data(target_file=None):
     """
     Loads raw synthetic datasets, performs an 80/20 train/validation split, standardizes
     the data based on the training set, and saves the processed data and scalers.
+
+    Args:
+        target_file (str, optional): A specific raw data file to preprocess.
+                                     If None, all raw data will be processed.
     """
     print("--- Starting Synthetic Data Preprocessing ---")
     print(f"Using random seed for split: {SPLIT_SEED}")
 
-    # Walk through the synthetic raw data directory to find all CSV files
-    for root, _, files in os.walk(RAW_DATA_DIR):
-        for file in files:
-            if not file.endswith('.csv'):
-                continue
+    files_to_process = []
+    if target_file:
+        # If a specific file is targeted, ensure it's a CSV and exists
+        if target_file.endswith('.csv') and os.path.exists(target_file):
+            # Check if it's part of the synthetic data directory structure
+            if os.path.abspath(target_file).startswith(os.path.abspath(RAW_DATA_DIR)):
+                files_to_process.append(target_file)
+    else:
+        # If no target, walk through the synthetic raw data directory to find all CSV files
+        for root, _, files in os.walk(RAW_DATA_DIR):
+            for file in files:
+                if file.endswith('.csv'):
+                    files_to_process.append(os.path.join(root, file))
 
-            # --- 1. Setup Paths ---
-            raw_file_path = os.path.join(root, file)
-            # Get the subfolder structure relative to the parent of RAW_DATA_DIR
-            # to replicate it in the processed and artifacts directories.
-            subfolder = os.path.relpath(root, os.path.dirname(RAW_DATA_DIR))
+    if not files_to_process:
+        print("No synthetic data files found to process.")
+        return
 
-            # Create specific output directories for this dataset
-            dataset_name = os.path.splitext(file)[0]
-            processed_dataset_dir = os.path.join(PROCESSED_DATA_DIR, subfolder, dataset_name)
-            scaler_dataset_dir = os.path.join(SCALER_DIR, subfolder)
-            os.makedirs(processed_dataset_dir, exist_ok=True)
-            os.makedirs(scaler_dataset_dir, exist_ok=True)
+    for raw_file_path in files_to_process:
+        # --- 1. Setup Paths ---
+        file = os.path.basename(raw_file_path)
+        root = os.path.dirname(raw_file_path)
+        # Get the subfolder structure relative to the parent of RAW_DATA_DIR
+        # to replicate it in the processed and artifacts directories.
+        subfolder = os.path.relpath(root, os.path.dirname(RAW_DATA_DIR))
 
-            print(f"\nProcessing: {os.path.join(subfolder, file)}")
+        # Create specific output directories for this dataset
+        dataset_name = os.path.splitext(file)[0]
+        processed_dataset_dir = os.path.join(PROCESSED_DATA_DIR, subfolder, dataset_name)
+        scaler_dataset_dir = os.path.join(SCALER_DIR, subfolder)
+        os.makedirs(processed_dataset_dir, exist_ok=True)
+        os.makedirs(scaler_dataset_dir, exist_ok=True)
 
-            # --- 2. Load and Split Data ---
-            df = pd.read_csv(raw_file_path)
-            X = df.drop('y', axis=1)
-            y = df['y']
+        print(f"\nProcessing: {os.path.join(subfolder, file)}")
 
-            X_train, X_val, y_train, y_val = train_test_split(
-                X, y, test_size=SPLIT_RATIO, random_state=SPLIT_SEED
-            )
+        # --- 2. Load and Split Data ---
+        df = pd.read_csv(raw_file_path)
+        X = df.drop('y', axis=1)
+        y = df['y']
 
-            # --- 3. Standardize Data ---
-            # Initialize scalers
-            x_scaler = StandardScaler()
-            y_scaler = StandardScaler()
+        X_train, X_val, y_train, y_val = train_test_split(
+            X, y, test_size=SPLIT_RATIO, random_state=SPLIT_SEED
+        )
 
-            # Fit scalers ONLY on the training data
-            X_train_scaled = x_scaler.fit_transform(X_train)
-            # Reshape y for the scaler, which expects a 2D array
-            y_train_scaled = y_scaler.fit_transform(y_train.values.reshape(-1, 1))
+        # --- 3. Standardize Data ---
+        # Initialize scalers
+        x_scaler = StandardScaler()
+        y_scaler = StandardScaler()
 
-            # Transform the validation data using the fitted scalers
-            X_val_scaled = x_scaler.transform(X_val)
-            y_val_scaled = y_scaler.transform(y_val.values.reshape(-1, 1))
+        # Fit scalers ONLY on the training data
+        X_train_scaled = x_scaler.fit_transform(X_train)
+        # Reshape y for the scaler, which expects a 2D array
+        y_train_scaled = y_scaler.fit_transform(y_train.values.reshape(-1, 1))
 
-            # --- 4. Save Scalers ---
-            x_scaler_path = os.path.join(scaler_dataset_dir, f"{dataset_name}_x_scaler.joblib")
-            y_scaler_path = os.path.join(scaler_dataset_dir, f"{dataset_name}_y_scaler.joblib")
-            joblib.dump(x_scaler, x_scaler_path)
-            joblib.dump(y_scaler, y_scaler_path)
-            print(f"  - Saved X scaler to: {os.path.relpath(x_scaler_path, PROJECT_ROOT)}")
-            print(f"  - Saved y scaler to: {os.path.relpath(y_scaler_path, PROJECT_ROOT)}")
+        # Transform the validation data using the fitted scalers
+        X_val_scaled = x_scaler.transform(X_val)
+        y_val_scaled = y_scaler.transform(y_val.values.reshape(-1, 1))
 
-            # --- 5. Save Processed Data ---
-            train_df = pd.DataFrame(X_train_scaled, columns=X_train.columns)
-            train_df['y'] = y_train_scaled.flatten()
+        # --- 4. Save Scalers ---
+        x_scaler_path = os.path.join(scaler_dataset_dir, f"{dataset_name}_x_scaler.joblib")
+        y_scaler_path = os.path.join(scaler_dataset_dir, f"{dataset_name}_y_scaler.joblib")
+        joblib.dump(x_scaler, x_scaler_path)
+        joblib.dump(y_scaler, y_scaler_path)
+        print(f"  - Saved X scaler to: {os.path.relpath(x_scaler_path, PROJECT_ROOT)}")
+        print(f"  - Saved y scaler to: {os.path.relpath(y_scaler_path, PROJECT_ROOT)}")
 
-            val_df = pd.DataFrame(X_val_scaled, columns=X_val.columns)
-            val_df['y'] = y_val_scaled.flatten()
+        # --- 5. Save Processed Data ---
+        train_df = pd.DataFrame(X_train_scaled, columns=X_train.columns)
+        train_df['y'] = y_train_scaled.flatten()
 
-            train_df.to_csv(os.path.join(processed_dataset_dir, 'train.csv'), index=False)
-            val_df.to_csv(os.path.join(processed_dataset_dir, 'validation.csv'), index=False)
-            print(f"  - Saved processed train/validation data to: {os.path.relpath(processed_dataset_dir, PROJECT_ROOT)}")
+        val_df = pd.DataFrame(X_val_scaled, columns=X_val.columns)
+        val_df['y'] = y_val_scaled.flatten()
+
+        train_df.to_csv(os.path.join(processed_dataset_dir, 'train.csv'), index=False)
+        val_df.to_csv(os.path.join(processed_dataset_dir, 'validation.csv'), index=False)
+        print(f"  - Saved processed train/validation data to: {os.path.relpath(processed_dataset_dir, PROJECT_ROOT)}")
 
     print("\n--- Synthetic Data Preprocessing Complete ---")
 
