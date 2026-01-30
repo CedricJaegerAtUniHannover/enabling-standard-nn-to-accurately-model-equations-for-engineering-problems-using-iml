@@ -50,8 +50,11 @@ Use the interactive visualizer to generate plots from the reports.
 
 3.  **Configure Plot:**
     *   If you selected an **ICE** file (1D or 2D), you will be asked: `Do you want a centered ICE plot? (y/n)`.
-        *   Type `y` to center the curves at the first data point (useful for seeing divergence relative to an anchor).
+        *   Type `y` to center the curves/surfaces at the feature value closest to 0 (useful for seeing divergence relative to the origin).
         *   Type `n` for standard absolute predictions.
+    *   If you selected a **2D-ICE** file, you will also be asked: `Do you want to plot a single instance? (y/n)`.
+        *   Type `y` to visualize a single surface (less cluttered). You can specify the instance ID.
+        *   Type `n` to visualize all surfaces.
 
 4.  **Output:**
     The resulting images are saved in the `outputs/figures` directory.

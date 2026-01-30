@@ -6,6 +6,7 @@ import sys
 import torch
 import numpy as np
 import pandas as pd
+import random
 from src.ice import get_ice_curves, get_ice_surfaces
 from src.h_statistic import get_friedman_h_statistic
 from src.utils import get_short_model_name
@@ -68,6 +69,14 @@ def run_single_experiment(raw_data_path, config, seeds=None):
 
     for i, seed in enumerate(seeds):
         print(f"\n{'-'*10} Running with seed {seed} ({i+1}/{len(seeds)} seeds) {'-'*10}")
+        
+        # Set global seeds for reproducibility at the start of the iteration
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
+        np.random.seed(seed)
+        random.seed(seed)
+
         # --- Phase 1: Preprocessing ---
         print(f"\n--- Starting Phase 1: Preprocessing Data for {dataset_name} ---")
         
@@ -82,8 +91,13 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         # --- Phase 2: Baseline NN training ---
         print(f"\n--- Starting Phase 2: Training Baseline Model for {dataset_name} ---")
 
-        # Set seed for reproducibility of model initialization and data shuffling
+        # Re-set seed for reproducibility of model initialization and data shuffling
+        # This ensures that any random state changes in Phase 1 do not affect Phase 2
+        np.random.seed(seed)
+        random.seed(seed)
         torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
         
         # 1. Load and prepare data for Pytorch training
         train_loader, val_loader, input_size = create_dataloaders(
@@ -121,6 +135,13 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         
         # --- Phase 3: Interpreting the Model for Feature Behaviour and Interactions ---
         print("\n--- Starting Phase 3: Interpreting the Model ---")
+
+        # Re-set seed before interpretation to ensure consistent sampling
+        np.random.seed(seed)
+        random.seed(seed)
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed_all(seed)
 
         # Create a wrapper for the PyTorch model to make it compatible with iML libraries
         model_wrapper = PyTorchModelWrapper(trained_model, config['DEVICE'])
