@@ -1,144 +1,216 @@
 # src/ice.py
 """
-1d-ICE according to iML exercise 3 and 2d-ICE according to ... and based on: ...
+Individual Conditional Expectation (ICE) plots.
+
+This module provides functions to calculate and plot 1D and 2D ICE plots,
+which are used to visualize the behavior of a model's predictions for
+individual instances as features are varied.
+
+Individual Conditional Expectation (ICE):
+Goldstein, A., Kapelner, A., Bleich, J., & Pitkin, E. (2015).
+Peeking inside the black box: Visualizing statistical learning with plots of
+individual conditional expectation. Journal of Computational and Graphical
+Statistics, 24(1), 44-65.
+
+
+The implementation is based of the third iML exercise with 2D-ICE beeing the
+natural extension of the 1D-ICE concept.
+
+For visualizing the interaction between two features. The 3D plotting is done
+using matplotlib's mplot3d toolkit.
 """
 
-import sys
-sys.path.insert(0, "")
-
+import pandas as pd
 import numpy as np
-from utils.dataset import Dataset
-from utils.styled_plot import plt
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 
-
-def calculate_ice(model, X, s):
+def get_ice_curves(model, X, feature, centered=True):
     """
-    Iterates over the observations in X and for each observation i, takes the x_s value of i and replaces the x_s
-    values of all other observation with this value. The model is used to make a prediction for this new data.
-    The data and prediction of each iteration are added to numpy arrays x_ice and y_ice.
-    For the current iteration i and the selected feature index s, the following equation is ensured:
-    X_ice[i, :, s] == X[i, s]
+    Calculates 1D Individual Conditional Expectation (ICE) curves.
 
-    Parameters:
-        model: Classifier which can call a predict method.
-        X (np.ndarray with shape (num_instances, num_features)): Input data.
-        s (int): Index of the feature x_s.
+    For each instance in X, this function generates a curve by varying the
+    value of the specified feature across its unique values in the dataset,
+    while keeping other features constant.
 
-    Returns:
-        X_ice (np.ndarray with shape (num_instances, num_instances, num_features)): Changed input data w.r.t. x_s.
-        y_ice (np.ndarray with shape (num_instances, num_instances)): Predicted data.
+    Parameters
+    ----------
+    model : object
+        A trained machine learning model with a `predict` method.
+    X : pd.DataFrame
+        The data on which to compute the ICE curves.
+    feature : str
+        The name of the feature to vary.
+    centered : bool, optional
+        If True, the ICE curves are centered at their first value.
+        Default is False.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the ICE curves, with columns for the feature,
+        the prediction, and the instance identifier.
     """
-    # NOTE: Although to me it would make more sense to have i be the same as the number of ice curves,
-    # the test and the X_ice[i, :, s] == X[i, s] condition demand to treat i as the grid points.
-    # That way when I look at a grid point i, for every ice curve the value for the certain feature s is the
-    # the same, according to the condition, the value that that feature has in the instance - so for
-    # every instance we create a grid point i.
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
 
-    # Extract unique values for the grid
-    #grid_points = np.unique(X[:, s])
-    # The test does not demand uniqueness, therefore I replace this with the following line:
-    grid_points = X[:, s]
-    #num_grid_points = len(grid_points) # replaced for simpler oneliner below
-    num_grid_points, num_features = X.shape
-    # print(f"Number of grid points for feature {s}: {num_grid_points}, number of features: {num_features}")
+    feature_values = np.sort(X[feature].unique())
     
-    # Identify amount of ice curves (i.e., number of instances)
-    num_ice_curves = X.shape[0]
-    # print(f"Number of ice curves i.e. number of instances: {num_ice_curves}")
+    ice_data = []
 
-    X_ice = np.zeros((num_grid_points, num_ice_curves, num_features))
-    y_ice = np.zeros((num_grid_points, num_ice_curves))
-
-    
-    for i in range(num_grid_points):
-        for c in range(num_ice_curves):
-            X_ice[i, c, :] = X[c, :].copy()
-            X_ice[i, c, s] = grid_points[i]
+    for index, instance in X.iterrows():
+        instance_data = pd.DataFrame([instance.values] * len(feature_values), columns=X.columns)
+        instance_data[feature] = feature_values
         
-        # calculate outputs for the grid points
-        y_ice[i, :] = model.predict(X_ice[i, :, :])
-
-    return X_ice, y_ice
-
-
-def prepare_ice(model, X, s, centered=False):
-    """
-    Uses `calculate_ice` and iterates over the rows of the returned arrays to obtain as many curves as
-    observations.
-
-    Parameters:
-        model: Classifier which can call a predict method.
-        X (np.ndarray with shape (num_instances, num_features)): Input data.
-        s (int): Index of the feature x_s.
-        centered (bool): Whether c-ICE should be used.
-
-    Returns:
-        all_x (list or 1D np.ndarray): List of lists of the x values.
-        all_y (list or 1D np.ndarray): List of lists of the y values.
-            Each entry in `all_x` and `all_y` represents one line in the plot.
-    """
-    X_ice, y_ice = calculate_ice(model, X, s)
-    num_grid_points, num_ice_curves = y_ice.shape
-
-    all_x = np.zeros((num_ice_curves, num_grid_points))
-    all_y = np.zeros((num_ice_curves, num_grid_points))
-
-    # Sorting X_ice and y_ice according to X_ice grid points, smallest to largest
-    sorted_X_ice = np.zeros_like(X_ice[:, :, s])
-    sorted_y_ice = np.zeros_like(y_ice)
-    for c in range(num_ice_curves):  # for each ice curve (second dimension - see function calculate_ice)
-        x_vals = X_ice[:, c, s]
-        y_vals = y_ice[:, c]
+        predictions = model.predict(instance_data)
         
-        sort_indices = np.argsort(x_vals) # first dimension is for every grid point
-        sorted_X_ice[:, c] = x_vals[sort_indices]
-        sorted_y_ice[:, c] = y_vals[sort_indices]
+        df = pd.DataFrame({
+            feature: feature_values,
+            'prediction': predictions
+        })
+        df['instance'] = index
+        ice_data.append(df)
+        
+    ice_df = pd.concat(ice_data, ignore_index=True)
 
     if centered:
-        y_offsets = sorted_y_ice[0, :]  # all the sorted y values at the first grid point
-        sorted_y_ice = sorted_y_ice - y_offsets[np.newaxis, :]  # center each ice curve
+        ice_df['prediction'] -= ice_df.groupby('instance')['prediction'].transform('first')
+        
+    return ice_df
+
+
+def get_ice_surfaces(model, X, features, centered=True):
+    """
+    Calculates 2D Individual Conditional Expectation (ICE) surfaces.
+
+    For each instance in X, this function generates a surface by varying the
+    values of two specified features across a grid of their unique values.
+
+    Parameters
+    ----------
+    model : object
+        A trained machine learning model with a `predict` method.
+    X : pd.DataFrame
+        The data on which to compute the ICE surfaces.
+    features : list of str
+        A list containing the names of the two features to vary.
+    centered : bool, optional
+        If True, the ICE surfaces are centered at their first value.
+        Default is False.
+
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the ICE surfaces, with columns for the two
+        features, the prediction, and the instance identifier.
+    """
+    if not isinstance(X, pd.DataFrame):
+        X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
+        
+    if len(features) != 2:
+        raise ValueError("Exactly two features must be provided for 2D ICE.")
+
+    feature1_vals = np.sort(X[features[0]].unique())
+    feature2_vals = np.sort(X[features[1]].unique())
     
-    # NOTE: opposing the function docstrin, I do not use all_x and all_y (1d arrays) for the output,
-    # because the test demands 2d arrays
-    for c in range(num_ice_curves):  # for each ice curve (second dimension - see function calculate_ice)
-        # bring in right shape according to test
-        all_x[c, :] = sorted_X_ice[:, c]
-        all_y[c, :] = sorted_y_ice[:, c]
-        # now we have that the first dimension is for each ice curve and the second for each grid point of it
-    '''
-    # reshape sorted arrays in 1D arrays for plotting
-    for i in range(X_ice.shape[0]): # for each grid point (first dimension - see function calculate_ice)
-        all_x = np.append(all_x, sorted_X_ice[i, :, s]) # effectively for as many ice curves there are
-        all_y = np.append(all_y, sorted_y_ice[i, :])
-    '''
-    return all_x, all_y
+    grid = np.array(np.meshgrid(feature1_vals, feature2_vals)).T.reshape(-1, 2)
+    
+    ice_data = []
+
+    for index, instance in X.iterrows():
+        instance_data = pd.DataFrame([instance.values] * len(grid), columns=X.columns)
+        instance_data[features[0]] = grid[:, 0]
+        instance_data[features[1]] = grid[:, 1]
+        
+        predictions = model.predict(instance_data)
+        
+        df = pd.DataFrame(grid, columns=features)
+        df['prediction'] = predictions
+        df['instance'] = index
+        ice_data.append(df)
+        
+    ice_df = pd.concat(ice_data, ignore_index=True)
+    
+    if centered:
+        ice_df['prediction'] -= ice_df.groupby('instance')['prediction'].transform('first')
+
+    return ice_df
 
 
-def plot_ice(model, dataset, X, s, centered=False):
+def plot_ice_curves(ice_df, feature, output_name="Prediction", save_path=None):
     """
-    Creates a plot object and fills it with the content of `prepare_ice`.
-    Note: `show` method is not called.
+    Plots 1D ICE curves from the calculated ICE data.
 
-    Parameters:
-        model: Classifier which can call a predict method.
-        dataset (utils.Dataset): Used dataset to train the model. Required to receive the input and output label.
-        s (int): Index of the feature x_s.
-        centered (bool): Whether c-ICE should be used.
-
-    Returns: 
-        plt (matplotlib.pyplot or utils.styled_plot.plt)
+    Parameters
+    ----------
+    ice_df : pd.DataFrame
+        The DataFrame containing ICE curve data from `get_ice_curves`.
+    feature : str
+        The name of the feature for which the curves are plotted.
+    output_name : str, optional
+        The label for the y-axis. Default is "Prediction".
+    save_path : str, optional
+        If provided, the plot will be saved to this path. Default is None.
     """
-    all_x, all_y = prepare_ice(model, X, s, centered) # 2d arrays each
+    plt.figure(figsize=(10, 8))
+    
+    for instance in ice_df['instance'].unique():
+        instance_df = ice_df[ice_df['instance'] == instance]
+        plt.plot(instance_df[feature], instance_df['prediction'], 'b-', alpha=0.3)
 
-    feature_name = dataset.get_input_labels()[s]
+    plt.title(f"ICE Plot for {feature}")
+    plt.xlabel(feature)
+    plt.ylabel(output_name)
+    
+    if save_path:
+        plt.savefig(save_path)
 
-    plt.figure()
+    plt.show()
 
-    for c in range(all_x.shape[0]): # for each ice curve
-        plt.plot(all_x[c, :], all_y[c,: ], alpha=0.2)
- 
-    plt.title(f"ICE plot for feature '{feature_name}'")
-    plt.xlabel(feature_name)
-    plt.ylabel(dataset.get_output_label())
 
-    return plt
+def plot_ice_surfaces(ice_df, features, output_name="Prediction", save_path=None):
+    """
+    Plots individual 2D ICE surfaces in a 3D plot.
+
+    Warning: Plotting a large number of surfaces can be slow and result in a
+    cluttered plot.
+
+    Parameters
+    ----------
+    ice_df : pd.DataFrame
+        The DataFrame containing ICE surface data from `get_ice_surfaces`.
+    features : list of str
+        A list of the two feature names.
+    output_name : str, optional
+        The label for the z-axis. Default is "Prediction".
+    save_path : str, optional
+        If provided, the plot will be saved to this path. Default is None.
+    """
+    if len(features) != 2:
+        raise ValueError("Exactly two features must be provided for 2D ICE plot.")
+
+    fig = plt.figure(figsize=(12, 10))
+    ax = fig.add_subplot(111, projection='3d')
+
+    instances = ice_df['instance'].unique()
+    colors = plt.cm.viridis(np.linspace(0, 1, len(instances)))
+
+    for i, instance in enumerate(instances):
+        instance_df = ice_df[ice_df['instance'] == instance]
+        
+        surface_pivot = instance_df.pivot(index=features[1], columns=features[0], values='prediction')
+        
+        X_grid, Y_grid = np.meshgrid(surface_pivot.columns.astype(float), surface_pivot.index.astype(float))
+        Z_grid = surface_pivot.values
+        
+        ax.plot_surface(X_grid, Y_grid, Z_grid, alpha=0.1, color=colors[i])
+
+    ax.set_xlabel(features[0])
+    ax.set_ylabel(features[1])
+    ax.set_zlabel(output_name)
+    ax.set_title(f"ICE Surfaces for {features[0]} and {features[1]}")
+
+    if save_path:
+        plt.savefig(save_path)
+        
+    plt.show()
