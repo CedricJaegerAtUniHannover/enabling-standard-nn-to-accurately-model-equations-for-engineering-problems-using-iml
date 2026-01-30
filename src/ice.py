@@ -25,7 +25,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-def get_ice_curves(model, X, feature, centered=False):
+def get_ice_curves(model, X, feature, centered=False, num_grid_points=100):
     """
     Calculates 1D Individual Conditional Expectation (ICE) curves.
 
@@ -44,6 +44,8 @@ def get_ice_curves(model, X, feature, centered=False):
     centered : bool, optional
         If True, the ICE curves are centered at their first value.
         Default is False.
+    num_grid_points : int, optional
+        Number of points to evaluate along the feature range. Default is 100.
 
     Returns
     -------
@@ -54,24 +56,32 @@ def get_ice_curves(model, X, feature, centered=False):
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
 
-    feature_values = np.sort(X[feature].unique())
+    feature_values = np.linspace(X[feature].min(), X[feature].max(), num_grid_points)
     
-    ice_data = []
+    num_instances = len(X)
+    num_feature_values = len(feature_values)
 
-    for index, instance in X.iterrows():
-        instance_data = pd.DataFrame([instance.values] * len(feature_values), columns=X.columns)
-        instance_data[feature] = feature_values
-        
-        predictions = model.predict(instance_data)
-        
-        df = pd.DataFrame({
-            feature: feature_values,
-            'prediction': predictions
-        })
-        df['instance'] = index
-        ice_data.append(df)
-        
-    ice_df = pd.concat(ice_data, ignore_index=True)
+    # Repeat each instance for each feature value
+    instance_data = X.loc[X.index.repeat(num_feature_values)].reset_index(drop=True)
+    
+    # Create a tiled array of feature values
+    tiled_feature_values = np.tile(feature_values, num_instances)
+    
+    # Assign the tiled feature values to the feature column
+    instance_data[feature] = tiled_feature_values
+    
+    # Make a single prediction call
+    predictions = model.predict(instance_data)
+    
+    # Create the instance identifiers
+    instance_ids = np.repeat(X.index, num_feature_values)
+
+    # Construct the final DataFrame
+    ice_df = pd.DataFrame({
+        feature: tiled_feature_values,
+        'prediction': predictions,
+        'instance': instance_ids
+    })
 
     if centered:
         ice_df['prediction'] -= ice_df.groupby('instance')['prediction'].transform('first')
@@ -79,7 +89,7 @@ def get_ice_curves(model, X, feature, centered=False):
     return ice_df
 
 
-def get_ice_surfaces(model, X, features, centered=False):
+def get_ice_surfaces(model, X, features, centered=False, num_grid_points=50):
     """
     Calculates 2D Individual Conditional Expectation (ICE) surfaces.
 
@@ -97,6 +107,8 @@ def get_ice_surfaces(model, X, features, centered=False):
     centered : bool, optional
         If True, the ICE surfaces are centered at their first value.
         Default is False.
+    num_grid_points : int, optional
+        Number of grid points per feature axis. Default is 50 (resulting in 50x50 grid).
 
     Returns
     -------
@@ -110,34 +122,42 @@ def get_ice_surfaces(model, X, features, centered=False):
     if len(features) != 2:
         raise ValueError("Exactly two features must be provided for 2D ICE.")
 
-    feature1_vals = np.sort(X[features[0]].unique())
-    feature2_vals = np.sort(X[features[1]].unique())
+    feature1_vals = np.linspace(X[features[0]].min(), X[features[0]].max(), num_grid_points)
+    feature2_vals = np.linspace(X[features[1]].min(), X[features[1]].max(), num_grid_points)
     
     grid = np.array(np.meshgrid(feature1_vals, feature2_vals)).T.reshape(-1, 2)
     
-    ice_data = []
+    num_instances = len(X)
+    num_grid_points = len(grid)
 
-    for index, instance in X.iterrows():
-        instance_data = pd.DataFrame([instance.values] * len(grid), columns=X.columns)
-        instance_data[features[0]] = grid[:, 0]
-        instance_data[features[1]] = grid[:, 1]
-        
-        predictions = model.predict(instance_data)
-        
-        df = pd.DataFrame(grid, columns=features)
-        df['prediction'] = predictions
-        df['instance'] = index
-        ice_data.append(df)
-        
-    ice_df = pd.concat(ice_data, ignore_index=True)
+    # Repeat each instance for each grid point
+    instance_data = X.loc[X.index.repeat(num_grid_points)].reset_index(drop=True)
     
+    # Create tiled grid values
+    tiled_grid = np.tile(grid, (num_instances, 1))
+    
+    # Assign tiled grid values to feature columns
+    instance_data[features[0]] = tiled_grid[:, 0]
+    instance_data[features[1]] = tiled_grid[:, 1]
+
+    # Make a single prediction call
+    predictions = model.predict(instance_data)
+    
+    # Create instance identifiers
+    instance_ids = np.repeat(X.index, num_grid_points)
+
+    # Construct the final DataFrame
+    ice_df = pd.DataFrame(tiled_grid, columns=features)
+    ice_df['prediction'] = predictions
+    ice_df['instance'] = instance_ids
+
     if centered:
         ice_df['prediction'] -= ice_df.groupby('instance')['prediction'].transform('first')
 
     return ice_df
 
 
-def plot_ice_curves(ice_df, feature, output_name="Prediction", save_path=None):
+def plot_ice_curves(ice_df, feature, output_name="Prediction", save_path=None, centered=False):
     """
     Plots 1D ICE curves from the calculated ICE data.
 
@@ -151,14 +171,37 @@ def plot_ice_curves(ice_df, feature, output_name="Prediction", save_path=None):
         The label for the y-axis. Default is "Prediction".
     save_path : str, optional
         If provided, the plot will be saved to this path. Default is None.
+    centered : bool, optional
+        If True, plots centered ICE curves (c-ICE), anchored at the feature value closest to 0.
+        Default is False.
     """
     plt.figure(figsize=(10, 8))
     
-    for instance in ice_df['instance'].unique():
-        instance_df = ice_df[ice_df['instance'] == instance]
+    plot_df = ice_df.copy()
+    
+    if centered:
+        # Center the predictions per instance at the feature value closest to 0
+        plot_df['abs_feature'] = plot_df[feature].abs()
+        # Find index of row with feature value closest to 0 for each instance
+        idx_anchors = plot_df.groupby('instance')['abs_feature'].idxmin()
+        # Get the prediction values at these indices
+        anchor_predictions = plot_df.loc[idx_anchors, ['instance', 'prediction']].set_index('instance')['prediction']
+        # Subtract anchor prediction
+        plot_df['prediction'] = plot_df['prediction'] - plot_df['instance'].map(anchor_predictions)
+        plot_df = plot_df.drop(columns=['abs_feature'])
+        
+        title_suffix = " (Centered at 0)"
+    else:
+        title_suffix = ""
+
+    # Sort by feature for correct line plotting
+    plot_df = plot_df.sort_values(by=[feature])
+
+    for instance in plot_df['instance'].unique():
+        instance_df = plot_df[plot_df['instance'] == instance]
         plt.plot(instance_df[feature], instance_df['prediction'], 'b-', alpha=0.3)
 
-    plt.title(f"ICE Plot for {feature}")
+    plt.title(f"ICE Plot for {feature}{title_suffix}")
     plt.xlabel(feature)
     plt.ylabel(output_name)
     
@@ -168,7 +211,7 @@ def plot_ice_curves(ice_df, feature, output_name="Prediction", save_path=None):
     plt.show()
 
 
-def plot_ice_surfaces(ice_df, features, output_name="Prediction", save_path=None):
+def plot_ice_surfaces(ice_df, features, output_name="Prediction", save_path=None, centered=False, instance_id=None):
     """
     Plots individual 2D ICE surfaces in a 3D plot.
 
@@ -185,6 +228,11 @@ def plot_ice_surfaces(ice_df, features, output_name="Prediction", save_path=None
         The label for the z-axis. Default is "Prediction".
     save_path : str, optional
         If provided, the plot will be saved to this path. Default is None.
+    centered : bool, optional
+        If True, plots centered ICE surfaces (c-ICE), anchored at the feature values closest to (0,0).
+        Default is False.
+    instance_id : int, optional
+        If provided, only plots the surface for this specific instance ID.
     """
     if len(features) != 2:
         raise ValueError("Exactly two features must be provided for 2D ICE plot.")
@@ -192,23 +240,43 @@ def plot_ice_surfaces(ice_df, features, output_name="Prediction", save_path=None
     fig = plt.figure(figsize=(12, 10))
     ax = fig.add_subplot(111, projection='3d')
 
-    instances = ice_df['instance'].unique()
+    plot_df = ice_df.copy()
+
+    if instance_id is not None:
+        plot_df = plot_df[plot_df['instance'] == instance_id]
+
+    if centered:
+        # Center the predictions per instance at the feature values closest to (0,0)
+        plot_df['dist_sq'] = plot_df[features[0]]**2 + plot_df[features[1]]**2
+        idx_anchors = plot_df.groupby('instance')['dist_sq'].idxmin()
+        anchor_predictions = plot_df.loc[idx_anchors, ['instance', 'prediction']].set_index('instance')['prediction']
+        plot_df['prediction'] = plot_df['prediction'] - plot_df['instance'].map(anchor_predictions)
+        plot_df = plot_df.drop(columns=['dist_sq'])
+        
+        title_suffix = " (Centered at 0,0)"
+    else:
+        title_suffix = ""
+
+    instances = plot_df['instance'].unique()
     colors = plt.cm.viridis(np.linspace(0, 1, len(instances)))
 
     for i, instance in enumerate(instances):
-        instance_df = ice_df[ice_df['instance'] == instance]
+        instance_df = plot_df[plot_df['instance'] == instance]
         
         surface_pivot = instance_df.pivot(index=features[1], columns=features[0], values='prediction')
         
         X_grid, Y_grid = np.meshgrid(surface_pivot.columns.astype(float), surface_pivot.index.astype(float))
         Z_grid = surface_pivot.values
         
-        ax.plot_surface(X_grid, Y_grid, Z_grid, alpha=0.1, color=colors[i])
+        ax.plot_surface(X_grid, Y_grid, Z_grid, alpha=0.3, color=colors[i])
 
     ax.set_xlabel(features[0])
     ax.set_ylabel(features[1])
     ax.set_zlabel(output_name)
-    ax.set_title(f"ICE Surfaces for {features[0]} and {features[1]}")
+    ax.set_title(f"ICE Surfaces for {features[0]} and {features[1]}{title_suffix}")
+
+    # Set a default 3D angular view
+    ax.view_init(elev=30, azim=-60)
 
     if save_path:
         plt.savefig(save_path)

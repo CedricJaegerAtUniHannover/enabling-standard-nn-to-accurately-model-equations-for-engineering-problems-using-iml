@@ -1,10 +1,60 @@
-# Enabling Standard Neural Networks to Accurately Model Equations for Engineering Problems Using IML
+# An Approach to Enabling Standard Neural Networks to Accurately Model Equations for Engineering Problems Using IML
 
 This project aims to demonstrate how to use Interpretable Machine Learning (IML) to enable standard neural networks to accurately model equations for engineering problems.
 
-## Python Version
+## Setup
 
-python 3.11.9 (available at https://www.python.org/downloads/release/python-3119/)
+### Prerequisites
+*   Python 3.11.9 (available at https://www.python.org/downloads/release/python-3119/)
+
+### Installation
+
+1.  **Create a virtual environment:**
+    ```bash
+    python -m venv venv
+    ```
+
+2.  **Activate the virtual environment:**
+    *   On Windows:
+        ```bash
+        venv\Scripts\activate
+        ```
+    *   On macOS/Linux:
+        ```bash
+        source venv/bin/activate
+        ```
+
+3.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+## Usage
+
+### 1. Run the Pipeline
+First, generate the data and train the models by running the main pipeline. This will create report files in `outputs/reports`.
+```bash
+python run_pipeline.py
+```
+
+### 2. Visualize Results
+Use the interactive visualizer to generate plots from the reports.
+
+1.  **Run the script:**
+    ```bash
+    python visualizer.py
+    ```
+
+2.  **Select a File:**
+    The script will list all available CSV reports found in `outputs/reports`. Enter the number corresponding to the file you want to visualize.
+
+3.  **Configure Plot:**
+    *   If you selected an **ICE** file (1D or 2D), you will be asked: `Do you want a centered ICE plot? (y/n)`.
+        *   Type `y` to center the curves at the first data point (useful for seeing divergence relative to an anchor).
+        *   Type `n` for standard absolute predictions.
+
+4.  **Output:**
+    The resulting images are saved in the `outputs/figures` directory.
 
 ## Utilities
 

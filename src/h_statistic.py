@@ -11,11 +11,11 @@ https://github.com/pyartemis/artemis
 """
 
 import pandas as pd
-from artemis.interactions_methods.model_agnostic.partial_dependence_based._friedman_h_statistic import FriedmanHStatistic
+from artemis.interactions_methods.model_agnostic.partial_dependence_based._friedman_h_statistic import FriedmanHStatisticMethod
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def get_friedman_h_statistic(model, X, features=None):
+def get_friedman_h_statistic(model, X, features=None, sample_size=100, random_state=42):
     """
     Calculates Friedman's H-statistic for feature interactions.
 
@@ -31,6 +31,11 @@ def get_friedman_h_statistic(model, X, features=None):
     features : list of str, optional
         A list of feature names for which to calculate interactions. If None,
         interactions will be calculated for all features. The default is None.
+    sample_size : int, optional
+        The number of samples to use for the calculation. If X has more rows than
+        sample_size, it will be downsampled. Default is 100.
+    random_state : int, optional
+        Random seed for sampling. Default is 42.
 
     Returns
     -------
@@ -41,14 +46,32 @@ def get_friedman_h_statistic(model, X, features=None):
     """
     if not isinstance(X, pd.DataFrame):
         X = pd.DataFrame(X, columns=[f'feature_{i}' for i in range(X.shape[1])])
-    
-    if features is None:
-        features = X.columns.tolist()
 
-    h_statistic = FriedmanHStatistic(model, X, feature_names=features)
+    if sample_size is not None and len(X) > sample_size:
+        X_subset = X.sample(n=sample_size, random_state=random_state)
+    else:
+        X_subset = X
 
-    overall_h_stats = h_statistic.get_overall_interaction_strength()
-    pairwise_h_stats = h_statistic.get_pairwise_interaction_strength()
+    if features is not None:
+        X_subset = X_subset[features]
+
+    method = FriedmanHStatisticMethod()
+    method.fit(model, X_subset)
+
+    overall_h_stats = method.ova
+    pairwise_h_stats = method.ovo
+
+    # Convert pairwise_h_stats to a square matrix if it is in long format (Artemis default)
+    if isinstance(pairwise_h_stats, pd.DataFrame) and pairwise_h_stats.shape[1] == 3:
+        f1_col, f2_col, val_col = pairwise_h_stats.columns
+        all_features = X_subset.columns.tolist()
+        matrix_df = pd.DataFrame(0.0, index=all_features, columns=all_features)
+        
+        for _, row in pairwise_h_stats.iterrows():
+            matrix_df.loc[row[f1_col], row[f2_col]] = row[val_col]
+            matrix_df.loc[row[f2_col], row[f1_col]] = row[val_col]
+            
+        pairwise_h_stats = matrix_df
 
     return overall_h_stats, pairwise_h_stats
 
@@ -70,5 +93,3 @@ def plot_friedman_h_statistic(pairwise_h_stats, save_path=None):
     plt.show()
     if save_path:
         plt.savefig(save_path)
-
-

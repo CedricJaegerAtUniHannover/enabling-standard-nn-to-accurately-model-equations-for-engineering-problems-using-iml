@@ -21,6 +21,7 @@ config = {
     "PATIENCE": 15,
     "BATCH_SIZE": 32,
     # Iteration IML
-    # TODO: Max samples (1d-, 2d-ICE and Friedman's H-statistic)
+    "ICE_NUM_SAMPLES": 50,      # Number of instances to sample for ICE plots (reduces N dimension)
+    "ICE_GRID_RESOLUTION": 50,  # Number of grid points per axis (reduces M dimension)
     "PAIRWISE_H_STAT_THRESHOLD": 0.05
 }
