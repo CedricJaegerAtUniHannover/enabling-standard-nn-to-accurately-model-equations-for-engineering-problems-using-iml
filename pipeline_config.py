@@ -11,6 +11,7 @@ config = {
     # TODO: "PROCESSED_DATA_DIR": "data/02_processed",
     # TODO: "AUGMENTED_DATA_DIR": "data/03_augmented",
     "BASELINE_MODELS_DIR": "models/01_baseline",
+    "REPORTS_DIR": "outputs/reports",
     "DEVICE": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     # Model Hyperparameters
     "HIDDEN_SIZES": [64, 64, 64],

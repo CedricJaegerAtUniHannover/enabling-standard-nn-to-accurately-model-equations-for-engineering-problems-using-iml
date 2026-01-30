@@ -71,6 +71,28 @@ def run_single_experiment(raw_data_path, config, seeds=None):
             save_path=save_path,
             seed=seed
         )
+
+        # loop of log2[#number of features] augmentations and retrainings because only ever two features of 
+        # the previous iteration can be augmented together thus there are so many iterations that a
+        # function terms with all features in them could be found (NOTE: this is a rough approximation
+        # and simplicification that would not hold true if features would have more complex operations attached to them)
+        # --- Phase 3: Interpreting the Model for Feature Behaviour and Interactions ---
+        # considered operations: [multiplication, division, pow, exp, log, sin, cos, sqrt]
+        # 1. 1d-ICE for constant factor, frequency and power law behaviour
+
+
+        # 2. Friedman H-statistic for feature interaction ranking
+
+        # 3. 2d-ICE curves for feature interactions identified in 2.
+
+
+        # --- Phase 4: Augmenting Data for New Model Training ---
+        # 1. Idenfify single feature augmentations by PySR regression of sampled ICE data
+
+        # 2. Identify feature pair augmentation by PySR regression of sampled 2d-ICE interaction data
+
+
+
     print(f"--- Finished all training runs for {dataset_name} ---")
 
 
@@ -96,7 +118,7 @@ def main():
 
     print(f"\nFound {len(datasets_to_process)} datasets to process.")
 
-    # --- Run the pipeline for each dataset ---
+    # --- Run the iterative training, auto-feature augmentation pipeline for each dataset ---
     for dataset_path in datasets_to_process:
         seeds = MASTER_RANDOM_SEEDS.values()
         run_single_experiment(dataset_path, config, seeds=seeds)
@@ -105,8 +127,15 @@ def main():
     print("        FULL PIPELINE COMPLETED         ")
     print("========================================")
 
+def anaylse_pipeline_results():
+    # Measure final model performance, generate plots and reports
+    # Compare final model to baseline (error in ID and OOD data and d-ICE plots)
+    pass
+
 if __name__ == "__main__":
     # If no data is present, generate it
     # generate_all_data()
     
     main()
+
+    anaylse_pipeline_results()
