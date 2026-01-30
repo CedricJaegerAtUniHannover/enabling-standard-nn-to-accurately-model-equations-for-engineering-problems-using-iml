@@ -7,10 +7,18 @@ import torch
 import numpy as np
 import pandas as pd
 import random
+
+# Add the project root to the Python path to allow for absolute imports
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.append(PROJECT_ROOT)
+
 from src.ice import get_ice_curves, get_ice_surfaces
 from src.h_statistic import get_friedman_h_statistic
 from src.utils import get_short_model_name
-from src.data_prepro import load_scalers, unstandardize_ice_data
+from src.data_prepro import load_scalers, unstandardize_ice_data, preprocess_data
+from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
+from src.config import MASTER_RANDOM_SEEDS
+from pipeline_config import config
 
 # Wrapper class for PyTorch model to be compatible with iML libraries
 class PyTorchModelWrapper:
@@ -44,15 +52,6 @@ class PyTorchModelWrapper:
         with torch.no_grad():
             predictions = self.model(X_tensor)
         return predictions.cpu().numpy().flatten()
-
-# Add the project root to the Python path to allow for absolute imports
-PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-sys.path.append(PROJECT_ROOT)
-
-from src.data_prepro import preprocess_data
-from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
-from src.config import MASTER_RANDOM_SEEDS
-from pipeline_config import config
 
 def set_global_seeds(seed):
     """
