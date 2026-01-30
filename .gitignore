@@ -13,5 +13,3 @@ project_specs/*
 # MacOS junk
 .DS_Store
 
-# temporarily disable models (until their names are short enough)
-models/*

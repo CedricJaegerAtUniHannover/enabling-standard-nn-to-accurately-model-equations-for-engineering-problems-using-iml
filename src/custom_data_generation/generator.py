@@ -34,11 +34,11 @@ def generate_data(seed=None):
 
     The ground truth equation is always calculated using the CLEAN inputs.
     """
-    if seed is None:
-        seed = 42
 
     # Set the seed for reproducibility across all random operations in this script
-    np.random.seed(seed)
+    if seed is not None:
+        np.random.seed(seed)
+
     print(f"Using random seed: {seed}")
 
     # Ensure the output directories exist

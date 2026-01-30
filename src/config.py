@@ -1,25 +1,35 @@
-# d:/Users/cedri/OneDrive/enabling-standard-nn-to-accurately-model-equations-for-engineering-problems-using-iml/src/config.py
+# src/config.py
 """
-Central configuration for the project.
+Configuration for the project internals, primarily seeds for reproducibility and paths.
 """
 
 # --- SEEDS ---
 # Seed for data generation
 DATA_GENERATION_SEED = 42
 
-# Seed for data preprocessing (train/val split)
-DATA_PREPROCESSING_SEED = 42
-
-# ML seeds
-MODEL_TRAINING_SEEDS = {
-    'model_1': 469,
-    'model_2': 108,
-    'model_3': 876,
-    'model_4': 95,
-    'model_5': 745,
-    'model_6': 874,
-    'model_7': 714,
-    'model_8': 825,
-    'model_9': 359,
-    'model_10': 42
+# Seed for data preprocessing (train/val split), training etc.
+MASTER_RANDOM_SEEDS = {
+    'instance_1': 1
 }
+"""   
+MASTER_RANDOM_SEEDS = {
+    'instance_1': 469,
+    'instance_2': 108,
+    'instance_3': 876,
+    'instance_4': 95,
+    'instance_5': 745,
+    'instance_6': 874,
+    'instance_7': 714,
+    'instance_8': 825,
+    'instance_9': 359,
+    'instance_10': 42
+}
+"""
+
+# --- Fallback Seeds ---
+# Fallback seed for data preprocessing (train/val split)
+DATA_PREPROCESSING_FALLBACK_SEED = 123
+
+# --- Paths ---
+# Path to the raw data directory
+RAW_DATA_DIR = "data/01_raw"

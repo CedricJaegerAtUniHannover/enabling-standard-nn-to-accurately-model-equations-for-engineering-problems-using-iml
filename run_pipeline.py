@@ -3,96 +3,74 @@
 import os
 import glob
 import sys
-import pandas as pd
 import torch
-from torch.utils.data import DataLoader, TensorDataset, random_split
 
 # Add the project root to the Python path to allow for absolute imports
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(PROJECT_ROOT)
 
 from src.data_prepro import preprocess_data
-from src.ann import SimpleNN, train_model, save_model_and_history, get_model_details_str
-from src.config import MODEL_TRAINING_SEEDS
+from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
+from src.config import MASTER_RANDOM_SEEDS
 
 
-def run_single_experiment(raw_data_path, config):
+def run_single_experiment(raw_data_path, config, seeds=None):
     """
     Runs the full pipeline for a single dataset.
     1. Preprocesses the data.
     2. Trains a baseline neural network.
     3. Saves the model and results.
     """
-    print(f"\n{'='*20} RUNNING EXPERIMENT FOR: {os.path.basename(raw_data_path)} {'='*20}")
-
-    # --- Phase 1: Preprocessing ---
-    # This will create the processed files in data/02_processed/
-    preprocess_data(target_file=raw_data_path)
-
-    # --- Determine paths for processed data and model saving ---
-    # e.g., 'data/01_raw/synthetic_data/input_noise/FILE.csv' -> 'synthetic_data/input_noise'
-    relative_path = os.path.relpath(os.path.dirname(raw_data_path), config['RAW_DATA_DIR'])
-    
-    # The preprocessor creates a directory named after the raw file, containing train/val splits
     dataset_name = os.path.splitext(os.path.basename(raw_data_path))[0]
-    processed_dataset_dir = os.path.join(config['PROCESSED_DATA_DIR'], relative_path, dataset_name)
+    relative_path = os.path.relpath(os.path.dirname(raw_data_path), config['RAW_DATA_DIR'])
 
-    train_path = os.path.join(processed_dataset_dir, 'train.csv')
-    val_path = os.path.join(processed_dataset_dir, 'validation.csv')
+    print(f"\n{'='*20} RUNNING EXPERIMENT FOR: {dataset_name} {'='*20}")
 
-    if not os.path.exists(train_path) or not os.path.exists(val_path):
-        print(f"ERROR: Processed train/validation files not found in '{processed_dataset_dir}'. Skipping training.")
-        return
+    for i, seed in enumerate(seeds):
+        print(f"\n{'-'*10} Running with seed {seed} ({i+1}/{len(seeds)} seeds) {'-'*10}")
+        # --- Phase 1: Preprocessing ---
+        print(f"\n--- Starting Phase 1: Preprocessing Data for {dataset_name} ---")
+        
+        # Creates processed data files and returns their paths
+        train_path, val_path = preprocess_data(data_file_path=raw_data_path, seed=seed)
 
-    # --- Phase 2: NN Training ---
-    print(f"\n--- Starting Phase 2: Training Baseline Model for {dataset_name} ---")
-    
-    # 1. Load and Prepare Data
-    train_df = pd.read_csv(train_path)
-    val_df = pd.read_csv(val_path)
+        if not train_path or not val_path:
+            print(f"ERROR: Preprocessing failed for '{raw_data_path}'. Skipping training.")
+            return
 
-    X_train = train_df.drop('y', axis=1).values
-    y_train = train_df['y'].values
-    X_val = val_df.drop('y', axis=1).values
-    y_val = val_df['y'].values
 
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-    y_train_tensor = torch.tensor(y_train, dtype=torch.float32).unsqueeze(1)
-    X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-    y_val_tensor = torch.tensor(y_val, dtype=torch.float32).unsqueeze(1)
-    
-    train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-    val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-
-    # The preprocessor already created the train/val split, so we use them directly
-    train_loader = DataLoader(train_dataset, batch_size=config['BATCH_SIZE'], shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=config['BATCH_SIZE'])
-
-    # Loop over the seeds to train multiple models for the same dataset
-    for model_run_name, seed in MODEL_TRAINING_SEEDS.items():
-        print(f"\n--- Training Run: {model_run_name} (Seed: {seed}) ---")
+        # --- Phase 2: Baseline NN training ---
+        print(f"\n--- Starting Phase 2: Training Baseline Model for {dataset_name} ---")
 
         # Set seed for reproducibility of model initialization and data shuffling
         torch.manual_seed(seed)
-
-        # 2. Initialize and Train Model
-        input_size = X_train.shape[1]
+        
+        # 1. Load and prepare data for Pytorch training
+        train_loader, val_loader, input_size = create_dataloaders(
+            train_path, val_path, config['BATCH_SIZE']
+        )
+        
+        # 2. Initialize and train model
         model = SimpleNN(input_size=input_size, hidden_sizes=config['HIDDEN_SIZES'])
 
-        trained_model, train_hist, val_hist = train_model(
+        trained_model, train_hist, val_hist, training_time = train_model(
             model, train_loader, val_loader, 
             config['EPOCHS'], config['LEARNING_RATE'], config['PATIENCE'], config['DEVICE']
         )
 
-        # 3. Save Artifacts
-        model_details = get_model_details_str(config['HIDDEN_SIZES'])
-        run_number = model_run_name.split('_')[-1]
-        model_name = f"{dataset_name}_ann_{model_details}_run-{run_number}_seed-{seed}_status-best"
-
+        # 3. Save artifacts (model and training history)
         save_path = os.path.join(config['BASELINE_MODELS_DIR'], relative_path)
-        
-        history = {"train_loss": train_hist, "validation_loss": val_hist}
-        save_model_and_history(trained_model, history, save_path, model_name)
+        model_details = get_model_details_str(config['HIDDEN_SIZES'])
+        save_artifacts(
+            model=trained_model, 
+            train_hist=train_hist, 
+            val_hist=val_hist, 
+            training_time=training_time,
+            model_details=model_details,
+            dataset_name=dataset_name, 
+            save_path=save_path,
+            seed=seed
+        )
     print(f"--- Finished all training runs for {dataset_name} ---")
 
 
@@ -105,19 +83,7 @@ def main():
     print("         STARTING FULL PIPELINE         ")
     print("========================================") 
 
-    # --- Pipeline Configuration ---
-    config = {
-        "RAW_DATA_DIR": "data/01_raw",
-        "PROCESSED_DATA_DIR": "data/02_processed",
-        "BASELINE_MODELS_DIR": "models/01_baseline",
-        "DEVICE": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-        # Model Hyperparameters
-        "HIDDEN_SIZES": [64, 64, 64],
-        "EPOCHS": 200,
-        "LEARNING_RATE": 0.001,
-        "PATIENCE": 15,
-        "BATCH_SIZE": 32
-    }
+    from pipeline_config import config
     print(f"Using device: {config['DEVICE']}")
 
     # --- Define which datasets to process ---
@@ -132,7 +98,8 @@ def main():
 
     # --- Run the pipeline for each dataset ---
     for dataset_path in datasets_to_process:
-        run_single_experiment(dataset_path, config)
+        seeds = MASTER_RANDOM_SEEDS.values()
+        run_single_experiment(dataset_path, config, seeds=seeds)
 
     print("\n========================================")
     print("        FULL PIPELINE COMPLETED         ")
