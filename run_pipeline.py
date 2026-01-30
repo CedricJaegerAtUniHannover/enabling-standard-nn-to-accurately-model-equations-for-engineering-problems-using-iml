@@ -4,6 +4,45 @@ import os
 import glob
 import sys
 import torch
+import numpy as np
+import pandas as pd
+from src.ice import get_ice_curves, get_ice_surfaces
+from src.h_statistic import get_friedman_h_statistic
+from src.utils import get_short_model_name
+from src.custom_data_generation.data_prepro import load_scalers, unstandardize_ice_data
+
+# Wrapper class for PyTorch model to be compatible with iML libraries
+class PyTorchModelWrapper:
+    """
+    Wraps a PyTorch model to provide a scikit-learn-like .predict() method
+    that accepts a pandas DataFrame or NumPy array.
+    """
+    def __init__(self, model, device='cpu'):
+        self.model = model
+        self.model.to(device)
+        self.model.eval()
+        self.device = device
+
+    def predict(self, X):
+        """
+        Makes predictions with the PyTorch model.
+
+        Args:
+            X (pd.DataFrame or np.ndarray): Input data.
+
+        Returns:
+            np.ndarray: Model predictions.
+        """
+        if isinstance(X, pd.DataFrame):
+            X_tensor = torch.tensor(X.values, dtype=torch.float32).to(self.device)
+        elif isinstance(X, np.ndarray):
+            X_tensor = torch.tensor(X, dtype=torch.float32).to(self.device)
+        else:
+            raise TypeError(f"Unsupported input type for prediction: {type(X)}")
+            
+        with torch.no_grad():
+            predictions = self.model(X_tensor)
+        return predictions.cpu().numpy().flatten()
 
 # Add the project root to the Python path to allow for absolute imports
 PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -12,6 +51,7 @@ sys.path.append(PROJECT_ROOT)
 from src.data_prepro import preprocess_data
 from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
 from src.config import MASTER_RANDOM_SEEDS
+from pipeline_config import config
 
 
 def run_single_experiment(raw_data_path, config, seeds=None):
@@ -72,26 +112,113 @@ def run_single_experiment(raw_data_path, config, seeds=None):
             seed=seed
         )
 
-        # loop of log2[#number of features] augmentations and retrainings because only ever two features of 
+        # TODO: loop of log2[#number of features] augmentations and retrainings because only ever two features of 
         # the previous iteration can be augmented together thus there are so many iterations that a
         # function terms with all features in them could be found (NOTE: this is a rough approximation
         # and simplicification that would not hold true if features would have more complex operations attached to them)
+        iteration = 0
+        report_path = os.path.join(config['REPORTS_DIR'], relative_path, f"iteration_{iteration}")
+        
         # --- Phase 3: Interpreting the Model for Feature Behaviour and Interactions ---
-        # considered operations: [multiplication, division, pow, exp, log, sin, cos, sqrt]
-        # 1. 1d-ICE for constant factor, frequency and power law behaviour
+        print("\n--- Starting Phase 3: Interpreting the Model ---")
 
+        # Create a wrapper for the PyTorch model to make it compatible with iML libraries
+        model_wrapper = PyTorchModelWrapper(trained_model, config['DEVICE'])
+        
+        # Load the training data for iML analysis
+        train_df = pd.read_csv(train_path)
+        X_train = train_df.drop('y', axis=1)
+        
+        # Ensure the report directory exists
+        os.makedirs(report_path, exist_ok=True)
+        
+        # Get a consistent model name for report files
+        model_name = get_short_model_name(dataset_name, model_details, seed)
 
-        # 2. Friedman H-statistic for feature interaction ranking
+        # --- 1D-ICE Calculations ---
+        print("Calculating 1D-ICE curves for all features...")
+        all_ice_curves = []
+        for feature in X_train.columns:
+            ice_df = get_ice_curves(model_wrapper, X_train, feature, centered=False)
+            all_ice_curves.append(ice_df)
+        
+        # Save standardized 1D-ICE results
+        if all_ice_curves:
+            full_ice_df = pd.concat(all_ice_curves, ignore_index=True)
+            ice_file_path = os.path.join(report_path, f"stand_1d-ICE_{model_name}.csv")
+            full_ice_df.to_csv(ice_file_path, index=False)
+            print(f"Saved standardized 1D-ICE curves to {ice_file_path}")
 
-        # 3. 2d-ICE curves for feature interactions identified in 2.
+            # --- Un-standardization Step ---
+            # The relative_path is from the raw data directory, which mirrors the scaler artifact structure
+            x_scaler, y_scaler = load_scalers(dataset_name, seed, relative_path)
+            unstandardized_ice_1d_df = unstandardize_ice_data(full_ice_df, x_scaler, y_scaler)
+            unstd_ice_path = os.path.join(report_path, f"unstand_1d-ICE_{model_name}.csv")
+            unstandardized_ice_1d_df.to_csv(unstd_ice_path, index=False)
+            print(f"Saved un-standardized 1D-ICE curves to {unstd_ice_path}")
+
+        # --- H-Statistic and 2D-ICE Calculations ---
+        # This is in a try-except block as the artemis library can be unstable
+        try:
+            # Friedman H-statistic for feature interaction ranking
+            print("Calculating Friedman's pairwise H-statistic for feature interactions...")
+            _, pairwise_h_stats = get_friedman_h_statistic(model_wrapper, X_train)
+            
+            # Save pairwise H-statistic results
+            pairwise_h_path = os.path.join(report_path, f"h-statistic_pairwise_{model_name}.csv")
+            pairwise_h_stats.to_csv(pairwise_h_path)
+            print(f"Saved pairwise H-statistic results to {pairwise_h_path}")
+
+            # 2d-ICE curves for interacting feature pairs based on H-statistic
+            print("Calculating 2D-ICE surfaces for significant interacting features...")
+            
+            # Find interacting pairs with H-statistic above a certain threshold
+            H_STAT_THRESHOLD = 0.05
+            
+            stacked_h = pairwise_h_stats.stack()
+            stacked_h.index = stacked_h.index.map(lambda x: tuple(sorted(x)))
+            stacked_h = stacked_h.drop_duplicates()
+            stacked_h = stacked_h[stacked_h.index.get_level_values(0) != stacked_h.index.get_level_values(1)]
+            
+            significant_pairs_series = stacked_h[stacked_h > H_STAT_THRESHOLD].sort_values(ascending=False)
+            top_pairs = significant_pairs_series.index.tolist()
+
+            all_ice_surfaces = []
+            if top_pairs:
+                print(f"Found {len(top_pairs)} pairs with H-statistic > {H_STAT_THRESHOLD} to analyze: {top_pairs}")
+                for pair in top_pairs:
+                    print(f"  - Calculating 2D-ICE for pair: {pair}")
+                    ice2d_df = get_ice_surfaces(model_wrapper, X_train, features=list(pair), centered=False)
+                    all_ice_surfaces.append(ice2d_df)
+
+            # Save standardized 2D-ICE results
+            if all_ice_surfaces:
+                full_ice2d_df = pd.concat(all_ice_surfaces, ignore_index=True)
+                ice2d_file_path = os.path.join(report_path, f"stand_2d-ICE_{model_name}.csv")
+                full_ice2d_df.to_csv(ice2d_file_path, index=False)
+                print(f"Saved standardized 2D-ICE surfaces to {ice2d_file_path}")
+
+                # --- Un-standardization Step ---
+                # Scalers are already loaded from the 1D-ICE step
+                unstandardized_ice_2d_df = unstandardize_ice_data(full_ice2d_df, x_scaler, y_scaler)
+                unstd_ice2d_path = os.path.join(report_path, f"unstand_2d-ICE_{model_name}.csv")
+                unstandardized_ice_2d_df.to_csv(unstd_ice2d_path, index=False)
+                print(f"Saved un-standardized 2D-ICE surfaces to {unstd_ice2d_path}")
+            else:
+                print("No significant feature pairs found for 2D-ICE analysis.")
+        
+        except Exception as e:
+            print(f"An error occurred during H-statistic or 2D-ICE calculation: {e}")
+            print("Skipping these steps.")
 
 
         # --- Phase 4: Augmenting Data for New Model Training ---
-        # 1. Idenfify single feature augmentations by PySR regression of sampled ICE data
+        # 1. unstandardize data
 
-        # 2. Identify feature pair augmentation by PySR regression of sampled 2d-ICE interaction data
+        # considered operations: [multiplication, division, pow, exp, log, sin, cos, sqrt]
+        # 2. Idenfify single feature augmentations by PySR regression of sampled ICE data
 
-
+        # 3. Identify feature pair augmentation by PySR regression of sampled 2d-ICE interaction data
 
     print(f"--- Finished all training runs for {dataset_name} ---")
 
@@ -105,7 +232,6 @@ def main():
     print("         STARTING FULL PIPELINE         ")
     print("========================================") 
 
-    from pipeline_config import config
     print(f"Using device: {config['DEVICE']}")
 
     # --- Define which datasets to process ---

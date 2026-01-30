@@ -25,7 +25,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 
-def get_ice_curves(model, X, feature, centered=True):
+def get_ice_curves(model, X, feature, centered=False):
     """
     Calculates 1D Individual Conditional Expectation (ICE) curves.
 
@@ -79,7 +79,7 @@ def get_ice_curves(model, X, feature, centered=True):
     return ice_df
 
 
-def get_ice_surfaces(model, X, features, centered=True):
+def get_ice_surfaces(model, X, features, centered=False):
     """
     Calculates 2D Individual Conditional Expectation (ICE) surfaces.
 

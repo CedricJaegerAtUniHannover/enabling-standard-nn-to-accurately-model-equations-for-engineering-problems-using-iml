@@ -124,3 +124,71 @@ if __name__ == "__main__":
         print(f"\nReturned paths:\nTrain: {train_p}\nValidation: {val_p}")
     else:
         print(f"Test file not found: {test_file}")
+
+def load_synthetic_scalers(dataset_name, seed, relative_data_path):
+    """
+    Loads the saved x and y scalers for a given dataset and seed.
+
+    Args:
+        dataset_name (str): The name of the dataset (without extension).
+        seed (int): The random seed used during preprocessing.
+        relative_data_path (str): The relative path of the raw data file 
+                                  from the raw data directory root.
+
+    Returns:
+        tuple: A tuple containing the loaded (x_scaler, y_scaler), or (None, None) if not found.
+    """
+    # The scaler path mirrors the raw data path structure inside artifacts/scalers
+    scaler_dataset_dir = os.path.join(SCALER_DIR, relative_data_path)
+    x_scaler_path = os.path.join(scaler_dataset_dir, f"{dataset_name}_seed-{seed}_x_scaler.joblib")
+    y_scaler_path = os.path.join(scaler_dataset_dir, f"{dataset_name}_seed-{seed}_y_scaler.joblib")
+
+    if not os.path.exists(x_scaler_path) or not os.path.exists(y_scaler_path):
+        print(f"Error: Scaler files not found for {dataset_name} with seed {seed}")
+        return None, None
+
+    x_scaler = joblib.load(x_scaler_path)
+    y_scaler = joblib.load(y_scaler_path)
+    
+    return x_scaler, y_scaler
+
+def unstandardize_synthetic_ice_data(ice_df, x_scaler, y_scaler):
+    """
+    Un-standardizes the feature and prediction columns of a concatenated ICE dataframe.
+
+    Args:
+        ice_df (pd.DataFrame): The concatenated ICE dataframe (1D or 2D).
+        x_scaler (StandardScaler): The fitted scaler for features.
+        y_scaler (StandardScaler): The fitted scaler for the target variable.
+
+    Returns:
+        pd.DataFrame: A new dataframe with un-standardized values.
+    """
+    if not x_scaler or not y_scaler:
+        print("Warning: Cannot un-standardize data due to missing scalers.")
+        return ice_df.copy() # Return a copy to be safe
+
+    unstd_df = ice_df.copy()
+
+    # Get feature scaler attributes
+    feature_names = x_scaler.feature_names_in_.tolist()
+    feature_means = x_scaler.mean_
+    feature_scales = x_scaler.scale_
+
+    # Get target scaler attributes
+    y_mean = y_scaler.mean_[0]
+    y_scale = y_scaler.scale_[0]
+
+    # Un-standardize the prediction column
+    if 'prediction' in unstd_df.columns:
+        unstd_df['prediction'] = (unstd_df['prediction'] * y_scale) + y_mean
+
+    # Un-standardize all possible feature columns
+    for i, feature_name in enumerate(feature_names):
+        if feature_name in unstd_df.columns:
+            # Applying the formula: original = (scaled * std) + mean
+            # This works correctly even with NaNs
+            unstd_df[feature_name] = (unstd_df[feature_name] * feature_scales[i]) + feature_means[i]
+            
+    return unstd_df
+

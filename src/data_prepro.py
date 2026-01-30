@@ -52,3 +52,27 @@ def preprocess_all_data():
 if __name__ == "__main__":
     # When run directly, process all data.
     preprocess_all_data()
+
+from src.custom_data_generation.data_prepro import load_synthetic_scalers, unstandardize_synthetic_ice_data
+
+def load_scalers(dataset_name, seed, relative_data_path):
+    """
+    Dispatcher function to load the correct scalers based on dataset type.
+    """
+    # The check for 'synthetic_data' is based on the directory structure
+    if 'synthetic_data' in relative_data_path:
+        return load_synthetic_scalers(dataset_name, seed, relative_data_path)
+    else:
+        print(f"Warning: No scaler loading process defined for dataset path '{relative_data_path}'.")
+        return None, None
+
+def unstandardize_ice_data(ice_df, x_scaler, y_scaler, relative_data_path):
+    """
+    Dispatcher function to un-standardize ICE data based on dataset type.
+    """
+    if 'synthetic_data' in relative_data_path:
+        return unstandardize_synthetic_ice_data(ice_df, x_scaler, y_scaler)
+    else:
+        print(f"Warning: No un-standardization process defined for dataset path '{relative_data_path}'.")
+        return ice_df.copy()
+

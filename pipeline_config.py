@@ -12,11 +12,15 @@ config = {
     # TODO: "AUGMENTED_DATA_DIR": "data/03_augmented",
     "BASELINE_MODELS_DIR": "models/01_baseline",
     "REPORTS_DIR": "outputs/reports",
+    "FIGURES_DIR": "outputs/figures",
     "DEVICE": torch.device("cuda" if torch.cuda.is_available() else "cpu"),
     # Model Hyperparameters
     "HIDDEN_SIZES": [64, 64, 64],
     "EPOCHS": 200,
     "LEARNING_RATE": 0.001,
     "PATIENCE": 15,
-    "BATCH_SIZE": 32
+    "BATCH_SIZE": 32,
+    # Iteration IML
+    # TODO: Max samples (1d-, 2d-ICE and Friedman's H-statistic)
+    "PAIRWISE_H_STAT_THRESHOLD": 0.05
 }
