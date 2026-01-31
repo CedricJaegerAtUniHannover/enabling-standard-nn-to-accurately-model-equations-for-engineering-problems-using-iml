@@ -12,9 +12,3 @@ project_specs/*
 
 # MacOS junk
 .DS_Store
-
-# temporarily disable models, data and artifacts from being tracked
-models/*
-data/*
-artifacts/*
-outputs/*

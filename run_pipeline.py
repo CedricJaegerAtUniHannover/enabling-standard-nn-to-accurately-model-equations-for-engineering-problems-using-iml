@@ -26,6 +26,7 @@ from src.data_augmentation import augment_dataset
 from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
 from src.config import MASTER_RANDOM_SEEDS
 from pipeline_config import config
+from src.custom_data_generation.generator import generate_data as generate_all_data
 
 # Wrapper class for PyTorch model to be compatible with iML libraries
 class PyTorchModelWrapper:
@@ -327,7 +328,7 @@ def anaylse_pipeline_results():
 
 if __name__ == "__main__":
     # If no data is present, generate it
-    # generate_all_data()
+    generate_all_data()
     
     main()
 

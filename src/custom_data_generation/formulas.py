@@ -109,5 +109,25 @@ FORMULA_SPECS = [
         },
         'num_samples': 10_000,
         'output_noise': {'type': 'gaussian', 'mean': 0.0, 'std_dev': 1.0}
-    }
+    },
+    {
+        'name': 'Ainteracting_trig',
+        'equation': lambda x: np.sin(x[:, 0]**2 * x[:, 1]) + x[:, 1], # y = sin(x1^2 * x2) + x3
+        'variables': {
+            'x1': {
+                'range': [-np.pi, np.pi],
+                'noise': {'type': 'gaussian', 'mean': 0.0, 'std_dev': 0.05}
+            },
+            'x2': {
+                'range': [-np.pi, np.pi],
+                'noise': {'type': 'gaussian', 'mean': 0.0, 'std_dev': 0.05}
+            },
+            'x3': {
+                'range': [-np.pi, np.pi],
+                'noise': {'type': 'gaussian', 'mean': 0.0, 'std_dev': 0.4}
+            }
+        },
+        'num_samples': 10_000,
+        'output_noise': {'type': 'gaussian', 'mean': 0.0, 'std_dev': 1.0}
+    },
 ]
