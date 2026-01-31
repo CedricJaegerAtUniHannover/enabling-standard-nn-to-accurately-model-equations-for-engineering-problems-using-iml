@@ -107,6 +107,7 @@ def analyze_1d_ice(report_path, model_name, config):
             if model:
                 eq = model.sympy()
                 skel = get_skeleton(eq)
+                print(f"      Instance {instance_id}: Equation: {eq}, Skeleton: {skel}")
                 skeletons.append(skel)
         
         if not skeletons:

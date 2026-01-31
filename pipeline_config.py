@@ -9,7 +9,7 @@ import torch
 config = {
     "RAW_DATA_DIR": "data/01_raw",   # Directory containing raw input data CSV files (will iteratre through subdirectories)
     # TODO: "PROCESSED_DATA_DIR": "data/02_processed",
-    # TODO: "AUGMENTED_DATA_DIR": "data/03_augmented",
+    "AUGMENTED_DATA_DIR": "data/03_augmented_raw",
     "BASELINE_MODELS_DIR": "models/01_baseline",
     "REPORTS_DIR": "outputs/reports",
     "FIGURES_DIR": "outputs/figures",

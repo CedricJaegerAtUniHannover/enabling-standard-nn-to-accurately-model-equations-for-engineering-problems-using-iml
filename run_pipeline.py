@@ -17,6 +17,7 @@ from src.h_statistic import get_friedman_h_statistic
 from src.utils import get_short_model_name
 from src.data_prepro import load_scalers, unstandardize_ice_data, preprocess_data
 from src.symbolic_regression import analyze_1d_ice, analyze_2d_ice
+from src.data_augmentation import augment_dataset
 from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
 from src.config import MASTER_RANDOM_SEEDS
 from pipeline_config import config
@@ -271,6 +272,11 @@ def run_single_experiment(raw_data_path, config, seeds=None):
                 f.write(f"{pair}: {eq}\n")
         
         print(f"Saved discovered equations to {equations_report_path}")
+
+        # 3. Augment Dataset
+        print("Augmenting dataset based on discovered equations...")
+        save_dir = os.path.join(config['AUGMENTED_DATA_DIR'], relative_path)
+        augment_dataset(raw_data_path, unary_results, binary_results, save_dir)
         
     print(f"--- Finished all training runs for {dataset_name} ---")
 
