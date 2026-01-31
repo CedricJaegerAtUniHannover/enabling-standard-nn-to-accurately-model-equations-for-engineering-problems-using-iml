@@ -6,22 +6,13 @@ import os
 import itertools
 import sympy
 from collections import Counter
-
-# Handle optional PySR dependency
-try:
-    from pysr import PySRRegressor
-    PYSR_AVAILABLE = True
-except ImportError:
-    PYSR_AVAILABLE = False
-    print("Warning: PySR not installed. Symbolic regression phases will be skipped.")
+from pysr import PySRRegressor
 
 def run_pysr(X, y, config):
     """
     Runs PySRRegressor on the provided data.
     X should be a DataFrame so PySR can infer variable names.
     """
-    if not PYSR_AVAILABLE:
-        return None
     
     model = PySRRegressor(
         niterations=config.get('PYSR_ITERATIONS', 20),
