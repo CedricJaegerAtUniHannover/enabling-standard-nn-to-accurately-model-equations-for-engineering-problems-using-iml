@@ -3,6 +3,7 @@
 import os
 import glob
 import sys
+import juliacall
 import torch
 import numpy as np
 import pandas as pd
