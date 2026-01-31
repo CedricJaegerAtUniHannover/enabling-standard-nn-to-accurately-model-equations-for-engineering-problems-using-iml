@@ -25,9 +25,48 @@ config = {
     "ICE_GRID_RESOLUTION": 50,  # Number of grid points per axis (reduces M dimension)
     "PAIRWISE_H_STAT_THRESHOLD": 0.05,
     # Symbolic Regression (PySR)
-    "PYSR_ITERATIONS": 20,
-    "PYSR_BINARY_OPS": ["+", "-", "*", "/", "pow"],
-    "PYSR_UNARY_OPS": ["sin", "cos", "exp", "log", "sqrt", "abs"],
-    "PYSR_MAX_SIZE": 7, # Limit complexity for quick, rough estimations
-    "SYMBOLIC_AGREEMENT_THRESHOLD": 0.90 # Require 90% agreement among ICE curves
+    "SYMBOLIC_AGREEMENT_THRESHOLD": 0.90, # Require 90% agreement among regressions of ICE curves
+    "PYSR_GLOBAL": {
+        "paralellism": "serial",
+        "deterministic": True,
+        "random_state": 42,
+        "iterations": 10,
+    },
+
+    # --- 1D ICE Configuration ---
+    # Goal: Find power, saturation, and oscillation laws.
+    #
+    # Interpretation of Constraints:
+    # We want to enable the form: y = A * f(B * x + C) + D
+    # where f is a single non-linear operation (unary op or power).
+    # 1. "binary_ops" (['+', '-', '*', '/']) allow the affine transformations (A, B, C, D).
+    # 2. "nested_constraints" prevent stacking non-linearities (e.g., sin(exp(x)) is forbidden).
+    #    This ensures that 'f' operates on a linear transformation of x, and the result is linearly transformed.
+    #    Examples allowed: (2*x + 2)^2, sin(5*x - 2), 3*exp(x) + 5
+    "PYSR_1D_CONFIG": {
+        "binary_ops": ["+", "-", "*", "/", "pow"],
+        "unary_ops": ["sin", "cos", "exp", "log", "sqrt"], # Focused set: Power, Saturation/Log, Periodic
+        "max_size": 10, # Reduced for speed. Sufficient for A*f(B*x+C)+D (size ~10)
+        "constraints": {'pow': (-1, 1)}, # Exponent max complexity 1 (constant)
+        "nested_constraints": {
+            "sin": {"sin": 0, "cos": 0, "exp": 0, "log": 0, "sqrt": 0},
+            "cos": {"sin": 0, "cos": 0, "exp": 0, "log": 0, "sqrt": 0},
+            "exp": {"sin": 0, "cos": 0, "exp": 0, "log": 0, "sqrt": 0},
+            "log": {"sin": 0, "cos": 0, "exp": 0, "log": 0, "sqrt": 0},
+            "sqrt": {"sin": 0, "cos": 0, "exp": 0, "log": 0, "sqrt": 0},
+        }
+    },
+
+    # --- 2D ICE Configuration ---
+    # Goal: Find specific interactions: Product (x*y), Ratio (x/y), Coupled Power (x^y), Compound Phase (sin(x+y)), Frequency Modulation (sin(x*y))
+    "PYSR_2D_CONFIG": {
+        "binary_ops": ["+", "*", "/", "pow"], # '+' needed for sin(x+y), '*' for sin(x*y)
+        "unary_ops": ["sin"], # Only sin needed for phase/frequency interaction
+        "max_size": 9,
+        "constraints": None,
+        "nested_constraints": {
+            "sin": {"sin": 0, "pow": 0}, # Prevent deep nesting
+            "pow": {"sin": 0, "pow": 0}
+        }
+    }
 }

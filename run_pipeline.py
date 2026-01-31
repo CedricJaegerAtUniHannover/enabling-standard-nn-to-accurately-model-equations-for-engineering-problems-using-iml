@@ -3,7 +3,12 @@
 import os
 import glob
 import sys
-import juliacall
+import warnings
+
+# Suppress juliacall warning about torch import order.
+# On Windows torch has to be imported first, which juliapkg from pysr dislikes, to avoid DLL initialization errors (WinError 1114).
+warnings.filterwarnings("ignore", message=".*torch was imported before juliacall.*")
+
 import torch
 import numpy as np
 import pandas as pd
@@ -17,7 +22,6 @@ from src.ice import get_ice_curves, get_ice_surfaces
 from src.h_statistic import get_friedman_h_statistic
 from src.utils import get_short_model_name
 from src.data_prepro import load_scalers, unstandardize_ice_data, preprocess_data
-from src.symbolic_regression import analyze_1d_ice, analyze_2d_ice
 from src.data_augmentation import augment_dataset
 from src.ann import SimpleNN, create_dataloaders, train_model, save_artifacts, get_model_details_str
 from src.config import MASTER_RANDOM_SEEDS
@@ -254,7 +258,11 @@ def run_single_experiment(raw_data_path, config, seeds=None):
         # --- Phase 4: Augmenting Data for New Model Training ---
         print("\n--- Starting Phase 4: Symbolic Regression for Feature Augmentation ---")
         
+        # Update config with current seed for PySR determinism
+        config["PYSR_RANDOM_STATE"] = seed
+
         # 1. Identify single feature augmentations
+        from src.symbolic_regression import analyze_1d_ice, analyze_2d_ice
         print("Analyzing 1D-ICE data for unary transformations...")
         unary_results = analyze_1d_ice(report_path, model_name, config)
         

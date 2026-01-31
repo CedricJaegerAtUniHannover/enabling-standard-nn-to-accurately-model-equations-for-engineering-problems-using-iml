@@ -29,6 +29,12 @@ This project aims to demonstrate how to use Interpretable Machine Learning (IML)
     pip install -r requirements.txt
     ```
 
+4.  **Initialize Julia Environment:**
+    Run this script once to download and configure the Julia backend required for symbolic regression.
+    ```bash
+    python setup_julia.py
+    ```
+
 ## Usage
 
 ### 1. Run the Pipeline
